@@ -4,6 +4,7 @@ import dotenv from 'dotenv'
 import businessRoutes from './routes/business.routes.js'
 import documentRoutes from './routes/document.routes.js'
 import { supabase } from './db/supabase.js'
+import { searchRelevantChunks } from './services/retrieval.services.js'
 
 dotenv.config()
 
@@ -25,6 +26,24 @@ app.get('/chunks/:businessId', async (req, res) => {
 
   res.json(data)
 })
+
+
+app.get('/search', async (req, res) => {
+  try {
+    const { business_id, query } = req.query
+
+    const results = await searchRelevantChunks(business_id, query)
+
+    console.log("RESULT:", results)  // 🔥 Add this
+
+    res.json(results)
+
+  } catch (error) {
+    console.error("ERROR:", error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 
 const PORT = process.env.PORT || 3000
 
