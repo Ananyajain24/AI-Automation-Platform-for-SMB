@@ -1,10 +1,12 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+
 import businessRoutes from './routes/business.routes.js'
 import documentRoutes from './routes/document.routes.js'
 import { supabase } from './db/supabase.js'
 import { searchRelevantChunks } from './services/retrieval.services.js'
+import { verifyToken } from './middleware/auth.middleware.js'
 
 dotenv.config()
 
@@ -13,28 +15,104 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
-app.use('/business', businessRoutes)
-app.use('/document', documentRoutes)
+// 🔐 Protect routes
+app.use('/business', verifyToken, businessRoutes)
+app.use('/document', verifyToken, documentRoutes)
 
-app.get('/chunks/:businessId', async (req, res) => {
-  const { data, error } = await supabase
-    .from('document_chunks')
-    .select('*')
-    .eq('business_id', req.params.businessId)
+// 🔐 Protect chunks route
+app.get('/chunks', verifyToken, async (req, res) => {
+  try {
+    const supabaseUserId = req.user.sub
 
-  if (error) return res.status(500).json(error)
+    // Get business_id from users table
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('business_id')
+      .eq('supabase_user_id', supabaseUserId)
+      .single()
 
-  res.json(data)
+    if (userError || !userData) {
+      return res.status(404).json({ error: 'User not linked to business' })
+    }
+
+    const { data, error } = await supabase
+      .from('document_chunks')
+      .select('*')
+      .eq('business_id', userData.business_id)
+
+    if (error) return res.status(500).json(error)
+
+    res.json(data)
+
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 
-app.get('/search', async (req, res) => {
+// 🔐 Secure search endpoint
+app.get('/search', verifyToken, async (req, res) => {
   try {
-    const { business_id, query } = req.query
+    const supabaseUserId = req.user.sub
+    const email = req.user.email
+    const { query } = req.query
 
-    const results = await searchRelevantChunks(business_id, query)
+    if (!query) {
+      return res.status(400).json({ error: 'Query is required' })
+    }
 
-    console.log("RESULT:", results)  // 🔥 Add this
+    // 🔎 Check if user exists
+    let { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('supabase_user_id', supabaseUserId)
+      .single()
+
+    // 🆕 If user does not exist → create business + user
+    if (!userData) {
+      console.log('Creating new business for user...')
+
+      // 1️⃣ Create business
+      const { data: newBusiness, error: businessError } = await supabase
+        .from('businesses')
+        .insert([
+          {
+            name: email + "'s Business",
+            email: email
+          }
+        ])
+        .select()
+        .single()
+
+      if (businessError) {
+        return res.status(500).json({ error: businessError.message })
+      }
+
+      // 2️⃣ Create user mapping
+      const { data: newUser, error: newUserError } = await supabase
+        .from('users')
+        .insert([
+          {
+            supabase_user_id: supabaseUserId,
+            business_id: newBusiness.id,
+            role: 'admin'
+          }
+        ])
+        .select()
+        .single()
+
+      if (newUserError) {
+        return res.status(500).json({ error: newUserError.message })
+      }
+
+      userData = newUser
+    }
+
+    // 🔎 Perform search
+    const results = await searchRelevantChunks(
+      userData.business_id,
+      query
+    )
 
     res.json(results)
 
@@ -43,7 +121,6 @@ app.get('/search', async (req, res) => {
     res.status(500).json({ error: error.message })
   }
 })
-
 
 const PORT = process.env.PORT || 3000
 

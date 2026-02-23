@@ -1,5 +1,6 @@
 import fs from 'fs'
 import * as documentService from '../services/document.service.js'
+import { supabase } from '../db/supabase.js'
 import { chunkText } from '../utils/chunk.util.js'
 import { generateEmbedding } from '../utils/embeddings.util.js'
 import { extractTextFromPDF } from '../utils/pdf.util.js'
@@ -7,11 +8,27 @@ import { uploadFileToStorage } from '../services/storage.service.js'
 
 export const uploadPDFDocument = async (req, res, next) => {
   try {
-    const { business_id, title } = req.body
 
-    if (!business_id || !req.file) {
-      return res.status(400).json({ error: 'Missing business_id or file' })
-    }
+    const supabaseUserId = req.user.sub
+    // 1️⃣ Get business_id from users table
+const { data: userData, error: userError } = await supabase
+  .from('users')
+  .select('business_id')
+  .eq('supabase_user_id', supabaseUserId)
+  .single()
+
+if (userError || !userData) {
+  return res.status(404).json({ error: 'User not linked to business' })
+}
+
+const business_id = userData.business_id
+    
+
+    if (!req.file) {
+  return res.status(400).json({ error: 'File is required' })
+}
+
+ const title = req.file.originalname
 
     // 1️⃣ Upload file to Supabase Storage
     const { fileUrl } = await uploadFileToStorage(req.file)
