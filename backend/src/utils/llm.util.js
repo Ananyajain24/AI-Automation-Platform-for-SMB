@@ -11,11 +11,11 @@ export const generateAnswer = async (question, context) => {
 
   try {
     const prompt = `
-You are a helpful customer support assistant.
-
-Answer the question using ONLY the context below.
-If the answer is not in the context, say:
+You are a business support assistant.
+Answer ONLY from provided context.
+If answer not in context, say:
 "I do not have that information."
+Do NOT fabricate information.
 
 Context:
 ${context}

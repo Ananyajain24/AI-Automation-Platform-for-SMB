@@ -2,11 +2,18 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 
+import { logger } from './utils/logger.js'
 import businessRoutes from './routes/business.routes.js'
 import documentRoutes from './routes/document.routes.js'
 import { supabase } from './db/supabase.js'
 import { searchRelevantChunks } from './services/retrieval.services.js'
 import { verifyToken } from './middleware/auth.middleware.js'
+import { validateQuery } from './middleware/validate.middleware.js'
+import { searchSchema } from './schemas/search.schema.js'
+import { errorHandler } from './middleware/error.middleware.js'
+import { rateLimiter } from './middleware/rateLimit.middleware.js'
+
+
 
 dotenv.config()
 
@@ -51,7 +58,7 @@ app.get('/chunks', verifyToken, async (req, res) => {
 
 
 // 🔐 Secure search endpoint
-app.get('/search', verifyToken, async (req, res) => {
+app.get('/search', verifyToken, rateLimiter, validateQuery(searchSchema), async (req, res) => {
   try {
     const supabaseUserId = req.user.sub
     const email = req.user.email
@@ -60,6 +67,11 @@ app.get('/search', verifyToken, async (req, res) => {
     if (!query) {
       return res.status(400).json({ error: 'Query is required' })
     }
+
+logger.info("search_request", {
+  user: req.user.sub,
+  query
+})
 
     // 🔎 Check if user exists
     let { data: userData, error: userError } = await supabase
@@ -121,6 +133,9 @@ app.get('/search', verifyToken, async (req, res) => {
     res.status(500).json({ error: error.message })
   }
 })
+
+
+app.use(errorHandler)
 
 const PORT = process.env.PORT || 3000
 
