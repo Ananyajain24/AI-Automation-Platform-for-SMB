@@ -1,10 +1,9 @@
 import express from 'express'
-import { uploadDocument } from '../controllers/document.controller.js'
+import { upload } from '../middleware/upload.middleware.js'
+import { uploadPDFDocument } from '../controllers/document.controller.js'
 
 const router = express.Router()
 
-router.post('/', uploadDocument)
-
-
+router.post('/upload', upload.single('file'), uploadPDFDocument)
 
 export default router

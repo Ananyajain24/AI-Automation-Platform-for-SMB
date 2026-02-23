@@ -1,33 +1,44 @@
+import fs from 'fs'
 import * as documentService from '../services/document.service.js'
 import { chunkText } from '../utils/chunk.util.js'
 import { generateEmbedding } from '../utils/embeddings.util.js'
+import { extractTextFromPDF } from '../utils/pdf.util.js'
+import { uploadFileToStorage } from '../services/storage.service.js'
 
-export const uploadDocument = async (req, res, next) => {
+export const uploadPDFDocument = async (req, res, next) => {
   try {
-    const { business_id, title, content } = req.body
+    const { business_id, title } = req.body
 
-    if (!business_id || !title || !content) {
-      return res.status(400).json({ error: 'Missing required fields' })
+    if (!business_id || !req.file) {
+      return res.status(400).json({ error: 'Missing business_id or file' })
     }
 
-    // 1️⃣ Save document
+    // 1️⃣ Upload file to Supabase Storage
+    const { fileUrl } = await uploadFileToStorage(req.file)
+
+    // 2️⃣ Extract text
+    const content = await extractTextFromPDF(req.file.path)
+
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({ error: 'PDF contains no readable text' })
+    }
+
+    // 3️⃣ Save document metadata
     const document = await documentService.createDocument(
       business_id,
-      title,
-      content
+      title || req.file.originalname,
+      content,
+      fileUrl,
+      req.file.mimetype,
+      req.file.size
     )
 
-    // 2️⃣ Chunk content
+    // 4️⃣ Chunk text
     const chunks = chunkText(content, 700, 100)
 
-    if (chunks.length === 0) {
-      return res.status(400).json({ error: 'Content too short to process' })
-    }
-
-    // 3️⃣ Generate embeddings in BATCH (important)
+    // 5️⃣ Generate embeddings in batch
     const embeddings = await generateEmbedding(chunks)
 
-    // 4️⃣ Map chunks with embeddings
     const formattedChunks = chunks.map((chunk, index) => ({
       business_id,
       document_id: document.id,
@@ -35,12 +46,16 @@ export const uploadDocument = async (req, res, next) => {
       embedding: embeddings[index]
     }))
 
-    // 5️⃣ Store chunks
+    // 6️⃣ Store chunks
     await documentService.insertChunks(formattedChunks)
 
+    // 7️⃣ Delete temp file
+    await fs.promises.unlink(req.file.path)
+
     res.status(201).json({
-      message: 'Document uploaded successfully',
-      totalChunks: formattedChunks.length
+      message: 'PDF uploaded and processed successfully',
+      totalChunks: formattedChunks.length,
+      fileUrl
     })
 
   } catch (error) {

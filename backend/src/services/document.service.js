@@ -1,16 +1,30 @@
 import { supabase } from '../db/supabase.js'
 
-export const createDocument = async (business_id, title, content) => {
-
-  const { data: document, error: docError } = await supabase
+export const createDocument = async (
+  business_id,
+  title,
+  content,
+  file_url,
+  file_type,
+  file_size
+) => {
+  const { data, error } = await supabase
     .from('documents')
-    .insert([{ business_id, title, content }])
+    .insert([
+      {
+        business_id,
+        title,
+        content,
+        file_url,
+        file_type,
+        file_size
+      }
+    ])
     .select()
     .single()
 
-  if (docError) throw docError
-
-  return document
+  if (error) throw error
+  return data
 }
 
 export const insertChunks = async (chunks) => {
